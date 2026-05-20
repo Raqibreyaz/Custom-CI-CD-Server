@@ -1,0 +1,17 @@
+{
+  "name": "custom-ci-cd-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "redis": "^5.12.1"
+  }
+}
