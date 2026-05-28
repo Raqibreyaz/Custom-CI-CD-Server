@@ -90,13 +90,14 @@ export async function runDeployment(deployConfig) {
   const logCollector = createLogCollector();
   const startedAt = new Date();
 
+  const repo = deployConfig.trigger.repo;
   const branch = deployConfig.trigger?.branch ?? "main";
   const projectRoot = deployConfig.target.projectPath;
-  const projectName = path.posix.basename(projectRoot);
-  const workDirFullPath = path.posix.join(
-    projectRoot,
-    deployConfig.workflow.workDir ?? "",
-  );
+  const workingDirName = deployConfig.workflow.workDir ?? "";
+
+  const releaseDirName = new Date().toISOString().replace(/[:.]/g, "-");
+  const releaseRoot = `${projectRoot}/releases/${releaseDirName}`;
+  const workingDirFullPath = path.posix.join(releaseRoot, workingDirName);
 
   const sshPrivateKey = process.env[deployConfig.target.auth.sshKey];
   if (!sshPrivateKey) {
@@ -112,55 +113,80 @@ export async function runDeployment(deployConfig) {
       privateKey: sshPrivateKey,
     });
 
-    // maintain a backup version of old code to add roll-back mechanism
+    // create a release directory into the releases dir
     await runRemoteCommand(
       sshClient,
-      `mkdir -p "$HOME/code-backup/" && rm -rf "$HOME/code-backup/${projectName}"`,
-      {},
-      logCollector,
-    );
-    await runRemoteCommand(
-      sshClient,
-      `rsync -a "${projectRoot}" "$HOME/code-backup/"`, //ensure 'projectRoot' doesnt have trailing /
+      `mkdir -p "${projectRoot}/releases"`,
       {},
       logCollector,
     );
 
+    // clone the repo as the new release directory(only required branch)
     await runRemoteCommand(
       sshClient,
-      `git fetch origin ${branch}`,
-      { cwd: projectRoot },
+      `git clone -b "${branch}" --single-branch "https://github.com/${repo}" "${releaseRoot}"`,
+      {},
       logCollector,
     );
 
+    // install dependencies into the new release directory
     await runRemoteCommand(
       sshClient,
-      `git reset --hard origin/${branch}`,
-      { cwd: projectRoot },
+      deployConfig.workflow.install,
+      { cwd: workingDirFullPath },
       logCollector,
     );
 
-    if (deployConfig.shouldInstall && deployConfig.workflow.install) {
+    // build the project(if needed)
+    if (deployConfig.workflow.build) {
       await runRemoteCommand(
         sshClient,
-        deployConfig.workflow.install,
-        { cwd: workDirFullPath },
+        deployConfig.workflow.build,
+        { cwd: workingDirFullPath },
         logCollector,
       );
     }
 
+    // symlink the shared .env file
     await runRemoteCommand(
       sshClient,
-      deployConfig.workflow.start,
-      { cwd: workDirFullPath },
+      `ln -sfn "${projectRoot}/shared/.env" "${workingDirFullPath}/.env"`,
+      {},
+      logCollector,
+    );
+
+    // store the previous release dir for rollback case
+    const previousReleaseResult = await runRemoteCommand(
+      sshClient,
+      `readlink ./current`,
+      { cwd: projectRoot },
+      logCollector,
+      true,
+    );
+    const previousReleaseDir = previousReleaseResult.stdout?.trim() || null;
+
+    // update the 'current' symlink to point on the new working dir release
+    await runRemoteCommand(
+      sshClient,
+      `ln -sfn "${releaseRoot}" ./current`,
+      { cwd: projectRoot },
+      logCollector,
+    );
+
+    // reload the server
+    await runRemoteCommand(
+      sshClient,
+      deployConfig.workflow.reload,
+      { cwd: projectRoot },
       logCollector,
     );
 
     // do a health-check to confirm it is up and running
-    const healthUrl = deployConfig.target.healthUrl || "http://127.0.0.1:3000/health";
+    const healthUrl =
+      deployConfig.target.healthUrl || "http://127.0.0.1:3000/health";
     const healthResult = await runRemoteCommand(
       sshClient,
-      `curl -fsS -o /dev/null ${healthUrl}`,
+      `curl -fsS -o /dev/null "${healthUrl}"`,
       {},
       logCollector,
       true, //ignore error
@@ -169,20 +195,31 @@ export async function runDeployment(deployConfig) {
     if (healthResult.code !== 0) {
       logCollector.onStdout("Health check failed. Starting rollback...");
 
-      // roll back to previous code
-      await runRemoteCommand(
-        sshClient,
-        `rsync -a --delete "$HOME/code-backup/${projectName}/" "${projectRoot}/"`,
-        {},
-        logCollector,
-      );
+      /* roll back to previous code */
+      if (previousReleaseDir) {
+        // update the 'current' symlink to point on the previous release
+        await runRemoteCommand(
+          sshClient,
+          `ln -sfn "${previousReleaseDir}" ./current`,
+          { cwd: projectRoot },
+          logCollector,
+        );
+        // reload the server
+        await runRemoteCommand(
+          sshClient,
+          deployConfig.workflow.reload,
+          { cwd: projectRoot },
+          logCollector,
+        );
 
-      await runRemoteCommand(
-        sshClient,
-        deployConfig.workflow.start,
-        { cwd: workDirFullPath },
-        logCollector,
-      );
+        // remove the current release directory
+        await runRemoteCommand(
+          sshClient,
+          `rm -rf "${releaseRoot}"`,
+          {},
+          logCollector,
+        );
+      }
 
       throw new Error("Health check failed. Rolled back to previous version.");
     }

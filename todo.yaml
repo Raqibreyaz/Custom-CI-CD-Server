@@ -1,14 +1,9 @@
-- add roll back mechanism to previous working code, when health check fails on deployment
 - update the deployment status(red,green,yellow) + target_url(that points to logs or a simple status page on the CI CD server) on the head_commit on github
 - add build step if build is required for backend
+- add adaptability if ci/cd server is running on the same machine as the deploying server is
 - make the app to work for frontend repo also
 - handle logs of pre+post deployment for frontend
 - make it capable to work with private repos also
 
-DONE:
-  - on deployment success/fail, notify developer using telegram
-  - make the pnpm,node available even on ssh non-interactive session to avoid exporting them each time
-  - improve the command execution of the backend deployment
-  - stored the full logs in redis for 7days
-  - handle logs of pre+post deployment for backend
-  - added health-check to ensure server is working as expected
+DONE: 
+  - add roll back mechanism to previous working code, when health check fails on deployment

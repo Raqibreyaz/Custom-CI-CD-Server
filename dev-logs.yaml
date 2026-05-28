@@ -3,11 +3,44 @@ features:
   - how: used github webhooks to get notified on push event, did 'ssh' into the remote server and pulled the latest changes and deployed the server
 
   - feature: deployment script need to be adaptible, if new packages are installed then it should do 'pnpm install' or if no new packages are installed then it should skip it
-  - fix: in the webhook payload, github sends all the commits + head_commit in the push, head_commit is only the latest commit happened in the push, so we need to check each commit and if packages.json appears in any(created,removed,modified) then we will mark installation as required
+  - how: in the webhook payload, github sends all the commits + head_commit in the push, head_commit is only the latest commit happened in the push, so we need to check each commit and if packages.json appears in any(created,removed,modified) then we will mark installation as required
 
   - feature: on deployment success/fail, notify developer with the summary + few logs on telegram
-  - fix: created a new telegram bot with bot-father, used the chatId and botToken to message in the chat about the deployment, created sturctured meaningful summary + logs for better understanding
+  - how: created a new telegram bot with bot-father, used the chatId and botToken to message in the chat about the deployment, created sturctured meaningful summary + logs for better understanding
+
+  - feature: Roll back mechanism to previous working deployment when new changes makes the server unhealthy
+  - how: 
+    - Storra/
+        releases/
+          '2026-05-28T18-16-41-621Z/'
+          '2026-05-28T18-30-19-621Z/'
+        ecosystem.config.js(pm2 config, symlink based)
+        current(symlink to the current release)
+        shared(.env,logs etc. shared across releases)
+
+    - we required to store last working code, so we created a releases directory
+    - at each new deployment, a new release directory is created into the 'releases' dir
+    - the repo is cloned into the new released directory
+    - 'current' symlink gets updated with the new releases dir
+    - .env, is shared, but at each release it requires .env in its dir, so created symlink of it too at there.
+    - on unhealthy response, rolls back to previous symlink
+    - pm2 smartly on reload updates the instances
 
 issues: 
   - issue: on using 'heredoc', many variables like pnpm,pm2,node were not getting found as they are installed in the home directory, not typical /usr/bin etc.
   - fix: before using them, exported the required env variables directories + added to path in that terminal session, now it worked
+
+  - issue: after the deployment, the new changes may crash the server, so a crash can happen even after successful deployment
+  - fix: add a /health public endpoint to know if server is running or not by 2xx response code
+
+  - issue: we didnt have log of each and every step of the deployment process, so it could be difficult to inspect step by step flow
+  - fix: collected logs at each step by the output of the command ran, sent the last trailed logs on telegram + stored full logs on redis for 7days
+
+  - issue: shell variables created at a step dont exist on steps forward while using execCommand(), as it creates a new shell for each step
+  - fix: used nodejs variables instead, uses output of the shell command by stdout
+
+  - issue: NVM caused issues, in a non-interactive SSH session, no home directory based path path variables are available, causing node,pnpm,pm2 to be 'command not found'
+  - fix: migrated from NVM to direct nodejs download and pnpm and pm2, all in a non-home location(/usr/local/bin)
+
+  - issue: pm2 start app.js --name server, pm2 reload server, this logic fails in case of multiple release versions of the app, as the app.js path will be different each time so reloading wont work
+  - fix: instead of harcoding the file's path, put a varying path where each each release updates the path, instead of 'release_1/app.js' 'release_2/app.js' use 'current_release/app.js' as the path, while current_release will be a symlink to the current release directory, so create a ecosystem.config.js file to store the config of pm2(usually in the project root directory where it will not be inside any release), so "pm2 startOrReload ecosystem.config.js" inside the project root will be enough.
