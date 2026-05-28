@@ -1,0 +1,66 @@
+[
+  {
+    "trigger": {
+      "repo": "Raqibreyaz/Storra",
+      "events": ["push", "pull_request"],
+      "branch": "main"
+    },
+    "workflow": {
+      "workDir": "Backend/",
+      "install": "pnpm install --frozen-lockfile",
+      "start": "pm2 reload storraBackend",
+      "packageManifest": ["package.json", "pnpm-lock.yaml"]
+    },
+    "target": {
+      "type": "ssh",
+      "host": "ssh_host",
+      "username": "username",
+      "projectPath": "project_path",
+      "auth": {
+        "sshKey": "AWS_SSH_KEY"
+      }
+    }
+  },
+  {
+    "trigger": {
+      "repo": "Raqibreyaz/Storra",
+      "events": ["push"],
+      "branch": "develop"
+    },
+    "workflow": {
+      "workDir": "Backend/",
+      "install": "pnpm install --frozen-lockfile",
+      "start": "pm2 reload storraBackend",
+      "packageManifest": ["package.json", "pnpm-lock.yaml"]
+    },
+    "target": {
+      "type": "ssh",
+      "host": "test-storra-backend.servehttp.com",
+      "username": "ubuntu",
+      "projectPath": "/home/ubuntu/Test-Storra",
+      "auth": {
+        "sshKey": "AWS_SSH_KEY"
+      }
+    }
+  },
+  {
+    "trigger": {
+      "repo": "Raqibreyaz/Storra",
+      "events": ["push", "pull_request"],
+      "branch": "main"
+    },
+    "workflow": {
+      "workDir": "Frontend/",
+      "envSetup": "",
+      "install": "pnpm install --frozen-lockfile",
+      "build": "pnpm build"
+    },
+    "target": {
+      "type": "s3",
+      "bucket": "",
+      "cloudfrontId": "",
+      "region": "",
+      "buildDir": ""
+    }
+  }
+]

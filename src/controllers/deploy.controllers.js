@@ -1,151 +1,120 @@
-import path from "node:path";
-import { spawn } from "node:child_process";
 import redisClient from "../config/redis.config.js";
+import { notifyDeveloper } from "../service/notifyDeveloper.service.js";
+import { persistDeploymentLogs } from "../service/persistDeploymentLogs.service.js";
+import { runDeployment as runBackendDeployment } from "../service/backendDeploy.service.js";
+import { runFrontendDeployment } from "../service/frontendDeploy.service.js";
 import verifyGithubWebhookSignature from "../helpers/verifyGithubWebhookSignature.helpers.js";
-import notifyDeveloper from "../service/notifyDeveloper.service.js";
 import checkChangesAndInstallationRequirement from "../helpers/checkChangesAndInstallationRequirement.helpers.js";
-import { tailLogs } from "../helpers/notifyLogs.helpers.js";
+import settings from "../config/settings.json" with { type: "json" };
+
+// ---------------------------------------------------------------------------
+// githubWebhook — entry point for all GitHub webhook events.
+// ---------------------------------------------------------------------------
 
 export const githubWebhook = async (req, res) => {
-  const signature = req.headers["x-hub-signature-256"];
-  const eventType = req.headers["x-github-event"];
+  const webhookSignature = req.headers["x-hub-signature-256"];
+  const githubEvent = req.headers["x-github-event"];
   const deliveryId = req.headers["x-github-delivery"];
 
-  console.log("verifying signature...");
-  // reject malformed event
-  if (!verifyGithubWebhookSignature(signature, req.body)) {
-    console.log("malformed event received!");
+  // 1. Verify the HMAC signature sent by GitHub.
+  console.log("[webhook] Verifying signature…");
+  if (!verifyGithubWebhookSignature(webhookSignature, req.body)) {
+    console.warn("[webhook] Invalid signature — rejecting.");
     return res.sendStatus(400);
   }
+  console.log("[webhook] Signature verified.");
 
-  console.log("signature verified!!");
-
-  // ignore non-push event
-  if (eventType !== "push") {
-    console.log("non push event received!");
-    return res.sendStatus(200);
-  }
-
-  // return error for bad delivery id
+  // 2. Reject events without a delivery id.
   if (!deliveryId) return res.sendStatus(400);
 
-  // ignore if the event already processed
+  // 3. Deduplicate: skip if we have already processed this delivery.
   const inserted = await redisClient.set(`github:webhook:${deliveryId}`, "1", {
-    expiration: {
-      type: "EX",
-      value: 60 * 15,
-    },
+    expiration: { type: "EX", value: 60 * 15 },
     condition: "NX",
   });
   if (inserted === null) {
-    console.log("skipping duplicate event.");
+    console.log("[webhook] Duplicate delivery — skipping.");
     return res.sendStatus(200);
   }
 
-  const payload = JSON.parse(req.body.toString("utf-8"));
+  // 4. Parse payload.
+  const githubPayload = JSON.parse(req.body.toString("utf-8"));
+  const repoFullName = githubPayload.repository.full_name;
+  const headCommit =
+    githubPayload.head_commit ??
+    githubPayload.commits?.[githubPayload.commits.length - 1];
+  const commitMessage = headCommit?.message ?? "";
+  const pusher =
+    githubPayload.pusher?.name ?? githubPayload.sender?.login ?? "";
+  const branch =
+    githubPayload.ref?.replace("refs/heads/", "") ??
+    githubPayload.pull_request?.base?.ref;
 
-  const { hasChanges, shouldInstall } = checkChangesAndInstallationRequirement(
-    payload.commits,
+  // 5. Ensure the repo is registered in settings.json.
+  const matchingConfigs = settings.filter(
+    (cfg) => cfg.trigger.repo === repoFullName,
   );
+  if (matchingConfigs.length === 0) {
+    console.log("[webhook] Repo not registered — ignoring.");
+    return res.sendStatus(403);
+  }
 
-  // skip if no changes done in backend
-  if (!hasChanges) {
+  // 6. Ensure at least one config listens to this event type.
+  if (
+    !matchingConfigs.some((cfg) => cfg.trigger.events.includes(githubEvent))
+  ) {
+    console.log("[webhook] Event type not registered — ignoring.");
     return res.sendStatus(200);
   }
 
-  // sending early ACK to github
+  // 7. ACK GitHub immediately so it doesn't time out waiting for us.
   res.sendStatus(200);
 
-  const scriptPath = path.join(import.meta.dirname, "..", "scripts/deploy.sh");
+  // 8. Determine which directories actually changed and need a deploy.
+  const deployableConfigs = matchingConfigs
+    .map((cfg) => {
+      const changeStatus = checkChangesAndInstallationRequirement(
+        githubPayload.commits,
+        cfg.workflow.workDir,
+        cfg.workflow.packageManifest,
+      );
+      if (!changeStatus.hasChanges) return null;
+      return { ...cfg, shouldInstall: changeStatus.shouldInstall };
+    })
+    .filter(Boolean);
 
-  const startedAt = Date.now();
-  const headCommit =
-    payload.head_commit || payload.commits[payload.commits.length - 1];
+  // 9. Run deployments sequentially.
+  for (const deployConfig of deployableConfigs) {
+    if (deployConfig.target.type === "ssh") {
+      // Step 1 — execute deployment steps and collect result.
+      const deployResult = await runBackendDeployment(deployConfig);
 
-  const context = {
-    repo: payload.repository?.full_name,
-    branch: payload.ref?.replace("refs/heads/", ""),
-    commitMessage: headCommit?.message,
-    pusher: payload.pusher?.name || payload.sender?.login,
-    deliveryId,
-    shouldInstall,
-  };
+      // Step 2 — persist full logs durably (fire-and-forget style; errors are
+      //           swallowed inside persistDeploymentLogs so they never block notify).
+      await persistDeploymentLogs(deliveryId, deployResult.fullLog);
 
-  await notifyDeveloper({
-    status: "started",
-    ...context,
-    startedAt: new Date(startedAt).toISOString(),
-    summary: `Deployment started for ${context.repo} on branch ${context.branch}`,
-  });
-
-  let stdErrBuf = "";
-  let stdOutBuf = "";
-
-  const childProcess = spawn("bash", [scriptPath], {
-    env: { ...process.env, SHOULD_INSTALL: String(shouldInstall) },
-  });
-
-  childProcess.stderr.on("data", (chunk) => {
-    stdErrBuf += chunk.toString();
-    process.stderr.write(chunk);
-  });
-  childProcess.stdout.on("data", (chunk) => {
-    stdOutBuf += chunk.toString();
-    process.stdout.write(chunk);
-  });
-
-  childProcess.on("close", async (code, signal) => {
-    const finishedAt = Date.now();
-    const durationMs = finishedAt - startedAt;
-    const combinedLogs = `${stdOutBuf}\n${stdErrBuf}`.trim();
-
-    if (code === 0) {
-      console.log("Script executed successfully!");
-
-      return await notifyDeveloper({
-        status: "success",
-        ...context,
-        startedAt: new Date(startedAt).toISOString(),
-        finishedAt: new Date(finishedAt).toISOString(),
-        durationMs,
-        exitCode: code,
-        signal,
-        summary: `Deployment succeeded for ${context.repo} on branch ${context.branch} in ${Math.round(durationMs / 1000)}s`,
-        logExcerpt: tailLogs(combinedLogs, 30, 4000),
+      // Step 3 — send a compact summary to the developer.
+      await notifyDeveloper({
+        status: deployResult.status,
+        repo: deployConfig.trigger.repo,
+        branch: deployConfig.trigger.branch,
+        commitMessage,
+        pusher,
+        runId: deliveryId,
+        shouldInstall: deployConfig.shouldInstall,
+        startedAt: deployResult.startedAt,
+        finishedAt: deployResult.finishedAt,
+        durationMs: deployResult.durationMs,
+        exitCode: deployResult.exitCode,
+        signal: deployResult.signal,
+        logExcerpt: deployResult.fullLog,
+        summary:
+          deployResult.status === "success"
+            ? "Deployment succeeded"
+            : "Deployment failed",
       });
+    } else {
+      await runFrontendDeployment(deployConfig);
     }
-
-    await notifyDeveloper({
-      status: "failed",
-      ...context,
-      startedAt: new Date(startedAt).toISOString(),
-      finishedAt: new Date(finishedAt).toISOString(),
-      durationMs,
-      exitCode: code,
-      signal,
-      summary: `Deployment failed for ${context.repo} on branch ${context.branch} with exit code ${code ?? "null"}`,
-      logExcerpt: tailLogs(combinedLogs || "no logs captured!", 80, 8000),
-    });
-
-    console.log("Script failed!");
-  });
-  childProcess.on("error", async (error) => {
-    console.log("Error in spawning the process!", error);
-
-    const finishedAt = Date.now();
-    const durationMs = finishedAt - startedAt;
-    await notifyDeveloper({
-      status: "failed",
-      ...context,
-      startedAt: new Date(startedAt).toISOString(),
-      finishedAt: new Date(finishedAt).toISOString(),
-      durationMs,
-      exitCode: null,
-      signal: null,
-      summary: `Deployment process could not start: ${error.message}`,
-      logExcerpt: tailLogs(
-        `${stdOutBuf}\n${stdErrBuf}\n${error.stack || error.message}`,
-      ),
-    });
-  });
+  }
 };
