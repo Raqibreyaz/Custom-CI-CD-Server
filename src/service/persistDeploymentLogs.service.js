@@ -15,19 +15,33 @@ const MAX_LOG_BYTES = 200_000;
 // @returns {Promise<void>}
 // ---------------------------------------------------------------------------
 
+const prefix = "cicd:logs";
 export async function persistDeploymentLogs(runId, logChunk) {
   if (!runId || !logChunk) return;
 
-  const key = `cicd:logs:${runId}`;
+  const key = `${prefix}:${runId}`;
   const payload = String(logChunk).slice(-MAX_LOG_BYTES);
 
   try {
     await redisClient.set(key, payload, {
       expiration: { type: "EX", value: LOG_TTL_SECONDS },
     });
-    console.log(`[persistDeploymentLogs] Stored ${payload.length} bytes → ${key}`);
+    console.log(
+      `[persistDeploymentLogs] Stored ${payload.length} bytes → ${key}`,
+    );
   } catch (error) {
     // Non-fatal: log persistence failure must never interrupt the notify step.
-    console.error("[persistDeploymentLogs] Failed to store logs:", error.message);
+    console.error(
+      "[persistDeploymentLogs] Failed to store logs:",
+      error.message,
+    );
   }
+}
+
+export async function getDeploymentLogs(runId) {
+  if (!runId) return;
+
+  const key = `${prefix}:${runId}`;
+
+  return await redisClient.get(key);
 }

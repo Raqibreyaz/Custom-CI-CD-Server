@@ -1,72 +1,8 @@
 import path from "node:path";
 import { NodeSSH } from "node-ssh";
-
-// ---------------------------------------------------------------------------
-// Log collector
-// ---------------------------------------------------------------------------
-
-function createLogCollector(limit = 12_000) {
-  let stdout = "";
-  let stderr = "";
-
-  const append = (current, chunk) => {
-    const next = current + chunk;
-    return next.length <= limit ? next : next.slice(next.length - limit);
-  };
-
-  return {
-    onStdout(chunk) {
-      const text = chunk.toString("utf8");
-      process.stdout.write(text);
-      stdout = append(stdout, text);
-    },
-    onStderr(chunk) {
-      const text = chunk.toString("utf8");
-      process.stderr.write(text);
-      stderr = append(stderr, text);
-    },
-    getStdout() {
-      return stdout;
-    },
-    getStderr() {
-      return stderr;
-    },
-    getCombined() {
-      return [stdout, stderr].filter(Boolean).join("\n");
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// SSH helper
-// ---------------------------------------------------------------------------
-
-async function runRemoteCommand(
-  sshClient,
-  command,
-  options,
-  logCollector,
-  ignoreError = false,
-) {
-  const result = await sshClient.execCommand(command, {
-    ...options,
-    onStdout: logCollector.onStdout,
-    onStderr: logCollector.onStderr,
-  });
-
-  const exitCode = typeof result.code === "number" ? result.code : 0;
-  if (exitCode !== 0 && !ignoreError) {
-    const err = new Error(
-      `Remote command failed (exit ${exitCode}): ${command}`,
-    );
-    err.exitCode = exitCode;
-    err.stdout = result.stdout;
-    err.stderr = result.stderr;
-    throw err;
-  }
-
-  return result;
-}
+import createLogCollector from "../helpers/createLogCollector.js";
+import runRemoteCommand from "../helpers/runRemoteCommand.js";
+import setDeployStatus from "./deployStatus.service.js";
 
 // ---------------------------------------------------------------------------
 // runDeployment — executes all SSH steps, returns a structured DeploymentResult
@@ -84,12 +20,13 @@ async function runRemoteCommand(
 //     fullLog:    string,   // combined stdout+stderr (up to collector limit)
 //   }
 // ---------------------------------------------------------------------------
-
-export async function runDeployment(deployConfig) {
+export async function runDeployment(deployConfig, deliveryId,commitSha) {
   const sshClient = new NodeSSH();
   const logCollector = createLogCollector();
   const startedAt = new Date();
 
+  const repoOwner = deployConfig.trigger.owner;
+  const deployContext = deployConfig.trigger.context;
   const repo = deployConfig.trigger.repo;
   const branch = deployConfig.trigger?.branch ?? "main";
   const projectRoot = deployConfig.target.projectPath;
@@ -106,7 +43,23 @@ export async function runDeployment(deployConfig) {
     );
   }
 
+  const logServerUrl = process.env.LOG_SERVER_URL;
+  if (!logServerUrl) {
+    throw new Error("Log server URL env var is missing.");
+  }
+  const logsTargetUrl = `${logServerUrl}/logs/${deliveryId}`;
+
   try {
+    await setDeployStatus({
+      owner: repoOwner,
+      context: deployContext,
+      description: "Deployment in Progress...",
+      repo,
+      sha: commitSha,
+      state: "pending",
+      targetUrl: logsTargetUrl,
+    });
+
     await sshClient.connect({
       host: deployConfig.target.host,
       username: deployConfig.target.username,
@@ -226,6 +179,16 @@ export async function runDeployment(deployConfig) {
 
     logCollector.onStdout("Server Health Check Passed Successfully.");
 
+    await setDeployStatus({
+      owner: repoOwner,
+      context: deployContext,
+      description: "Deployment successfully Completed.",
+      repo,
+      sha: commitSha,
+      state: "success",
+      targetUrl: logsTargetUrl,
+    });
+
     return {
       status: "success",
       startedAt,
@@ -236,6 +199,16 @@ export async function runDeployment(deployConfig) {
       fullLog: logCollector.getCombined(),
     };
   } catch (error) {
+    await setDeployStatus({
+      owner: repoOwner,
+      context: deployContext,
+      description: "Deployment failed.",
+      repo,
+      sha: commitSha,
+      state: "failure",
+      targetUrl: logsTargetUrl,
+    });
+
     return {
       status: "failed",
       startedAt,

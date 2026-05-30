@@ -1,9 +1,10 @@
 - update the deployment status(red,green,yellow) + target_url(that points to logs or a simple status page on the CI CD server) on the head_commit on github
-- add build step if build is required for backend
-- add adaptability if ci/cd server is running on the same machine as the deploying server is
+- add adaptability if ci/cd server is running on the same machine as the deploying server is then no SSH is required.
 - make the app to work for frontend repo also
 - handle logs of pre+post deployment for frontend
 - make it capable to work with private repos also
 
 DONE: 
   - add roll back mechanism to previous working code, when health check fails on deployment
+  - add branch based deployment feature
+  - add build step if build is required for backend

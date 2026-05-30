@@ -44,6 +44,7 @@ export const githubWebhook = async (req, res) => {
     githubPayload.head_commit ??
     githubPayload.commits?.[githubPayload.commits.length - 1];
   const commitMessage = headCommit?.message ?? "";
+  const commitSha = headCommit?.id ?? "";
   const pusher =
     githubPayload.pusher?.name ?? githubPayload.sender?.login ?? "";
   const branch =
@@ -56,6 +57,11 @@ export const githubWebhook = async (req, res) => {
   );
   if (matchingConfigs.length === 0) {
     console.log("[webhook] Repo not registered — ignoring.");
+    return res.sendStatus(403);
+  }
+
+  if (!matchingConfigs.some((cfg) => cfg.trigger.branch === branch)) {
+    console.log("[webhook] Branch not registered - ignoring.");
     return res.sendStatus(403);
   }
 
@@ -87,7 +93,11 @@ export const githubWebhook = async (req, res) => {
   for (const deployConfig of deployableConfigs) {
     if (deployConfig.target.type === "ssh") {
       // Step 1 — execute deployment steps and collect result.
-      const deployResult = await runBackendDeployment(deployConfig);
+      const deployResult = await runBackendDeployment(
+        deployConfig,
+        deliveryId,
+        commitSha,
+      );
 
       // Step 2 — persist full logs durably (fire-and-forget style; errors are
       //           swallowed inside persistDeploymentLogs so they never block notify).

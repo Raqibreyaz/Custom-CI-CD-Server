@@ -1,6 +1,8 @@
 [
   {
     "trigger": {
+      "owner":"Raqibreyaz",
+      "context":"deploy/production",
       "repo": "Raqibreyaz/Storra",
       "events": ["push", "pull_request"],
       "branch": "main"
@@ -8,7 +10,7 @@
     "workflow": {
       "workDir": "Backend/",
       "install": "pnpm install --frozen-lockfile",
-      "start": "pm2 reload storraBackend",
+      "reload": "pm2 reload storraBackend",
       "packageManifest": ["package.json", "pnpm-lock.yaml"]
     },
     "target": {
@@ -25,7 +27,8 @@
     "trigger": {
       "repo": "Raqibreyaz/Storra",
       "events": ["push"],
-      "branch": "develop"
+      "branch": "develop",
+      "context":"deploy/test"
     },
     "workflow": {
       "workDir": "Backend/",
