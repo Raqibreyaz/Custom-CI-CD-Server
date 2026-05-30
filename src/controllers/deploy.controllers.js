@@ -59,7 +59,7 @@ export const githubWebhook = async (req, res) => {
     console.log("[webhook] Repo not registered — ignoring.");
     return res.sendStatus(403);
   }
-  
+
   // 6. Ensure at least one config listens to this event type.
   if (
     !matchingConfigs.some((cfg) => cfg.trigger.events.includes(githubEvent))
@@ -67,7 +67,7 @@ export const githubWebhook = async (req, res) => {
     console.log("[webhook] Event type not registered — ignoring.");
     return res.sendStatus(200);
   }
-  
+
   if (!matchingConfigs.some((cfg) => cfg.trigger.branch === branch)) {
     console.log("[webhook] Branch not registered - ignoring.");
     return res.sendStatus(403);

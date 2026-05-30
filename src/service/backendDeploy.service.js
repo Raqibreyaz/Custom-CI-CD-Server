@@ -25,9 +25,9 @@ export async function runDeployment(deployConfig, deliveryId, commitSha) {
   const logCollector = createLogCollector();
   const startedAt = new Date();
 
-  const repoOwner = deployConfig.trigger.owner;
   const deployContext = deployConfig.trigger.context;
-  const repo = deployConfig.trigger.repo;
+  const repoFullName = deployConfig.trigger.repo
+  const [repoOwner, repoName] = deployConfig.trigger.repo.split("/");
   const branch = deployConfig.trigger?.branch ?? "main";
   const projectRoot = deployConfig.target.projectPath;
   const workingDirName = deployConfig.workflow.workDir ?? "";
@@ -54,7 +54,7 @@ export async function runDeployment(deployConfig, deliveryId, commitSha) {
       owner: repoOwner,
       context: deployContext,
       description: "Deployment in Progress...",
-      repo,
+      repo: repoName,
       sha: commitSha,
       state: "pending",
       targetUrl: logsTargetUrl,
@@ -77,7 +77,7 @@ export async function runDeployment(deployConfig, deliveryId, commitSha) {
     // clone the repo as the new release directory(only required branch)
     await runRemoteCommand(
       sshClient,
-      `git clone -b "${branch}" --single-branch "https://github.com/${repo}" "${releaseRoot}"`,
+      `git clone -b "${branch}" --single-branch "https://github.com/${repoFullName}" "${releaseRoot}"`,
       {},
       logCollector,
     );
@@ -183,7 +183,7 @@ export async function runDeployment(deployConfig, deliveryId, commitSha) {
       owner: repoOwner,
       context: deployContext,
       description: "Deployment successfully Completed.",
-      repo,
+      repo: repoName,
       sha: commitSha,
       state: "success",
       targetUrl: logsTargetUrl,
@@ -203,7 +203,7 @@ export async function runDeployment(deployConfig, deliveryId, commitSha) {
       owner: repoOwner,
       context: deployContext,
       description: "Deployment failed.",
-      repo,
+      repo: repoName,
       sha: commitSha,
       state: "failure",
       targetUrl: logsTargetUrl,

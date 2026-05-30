@@ -50,3 +50,6 @@ issues:
 
   - issue: pm2 start app.js --name server, pm2 reload server, this logic fails in case of multiple release versions of the app, as the app.js path will be different each time so reloading wont work
   - fix: instead of harcoding the file's path, put a varying path where each each release updates the path, instead of 'release_1/app.js' 'release_2/app.js' use 'current_release/app.js' as the path, while current_release will be a symlink to the current release directory, so create a ecosystem.config.js file to store the config of pm2(usually in the project root directory where it will not be inside any release), so "pm2 startOrReload ecosystem.config.js" inside the project root will be enough.
+
+  - issue: octokit requires 'repo' name without owner's name embedded, so 'Raqibreyaz/Storra' should be just 'Storra', otherwise repo not found error will be thrown
+  - fix: const [owner,repoName] = repo.split('/')

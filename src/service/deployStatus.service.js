@@ -47,31 +47,31 @@ export default async function setDeployStatus({
 
 // ── Example: lifecycle of a deployment ─────────────────────────────────────
 
-const config = {
-  owner: "your-org",
-  repo: "your-repo",
-  sha: "a1b2c3d4e5f6...", // full 40-char commit SHA
-};
+// const config = {
+//   owner: "your-org",
+//   repo: "your-repo",
+//   sha: "a1b2c3d4e5f6...", // full 40-char commit SHA
+// };
 
 // 1. Mark as pending when deploy starts
-await setDeployStatus({
-  ...config,
-  state: "pending",
-  context: "deploy/production",
-  description: "Deployment in progress...",
-  targetUrl: "https://your-ci.example.com/runs/123",
-});
+// await setDeployStatus({
+//   ...config,
+//   state: "pending",
+//   context: "deploy/production",
+//   description: "Deployment in progress...",
+//   targetUrl: "https://your-ci.example.com/runs/123",
+// });
 
 // ... your actual deploy logic here ...
 
 // 2. Mark as success when done
-await setDeployStatus({
-  ...config,
-  state: "success",
-  context: "deploy/production",
-  description: "Deployed to production ✓",
-  targetUrl: "https://your-ci.example.com/runs/123",
-});
+// await setDeployStatus({
+//   ...config,
+//   state: "success",
+//   context: "deploy/production",
+//   description: "Deployed to production ✓",
+//   targetUrl: "https://your-ci.example.com/runs/123",
+// });
 
 // Or on failure:
 // await setDeployStatus({

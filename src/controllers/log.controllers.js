@@ -5,5 +5,5 @@ export const getLogs = async (req, res) => {
 
   const logs = await getDeploymentLogs(deliveryId);
 
-  res.json({ message: "Logs fetched successfully!", logs });
+  res.send(logs)
 };
