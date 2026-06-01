@@ -32,6 +32,14 @@ features:
   - feature: show deployment status like github actions on the commit, for pending,success,failure with url to show the detailed logs
   - how: we had 2 options, either to use the raw github api or use the official octokit/rest library to set the commit status for deployment, we used the octokit library
 
+  - feature: Make the ci/cd server to deploy frontend code also to s3 with cloudfront
+  - how: 
+    - find the package manager used, to download if it is not available using corepack
+    - download all the tools to build the frontend, nodejs, packageManager, AWS CLI SDK conditionally if they are not installed
+    - on building the project, sync the build to the s3 bucket and invalidate cloudfront cache
+    - spawn a new process, pass the deploy script to it
+    - for every event, error/success/close(with/without error), handle the deployment status and return the deployment context with logs accordingly
+
 issues: 
   - issue: on using 'heredoc', many variables like pnpm,pm2,node were not getting found as they are installed in the home directory, not typical /usr/bin etc.
   - fix: before using them, exported the required env variables directories + added to path in that terminal session, now it worked
@@ -53,3 +61,6 @@ issues:
 
   - issue: octokit requires 'repo' name without owner's name embedded, so 'Raqibreyaz/Storra' should be just 'Storra', otherwise repo not found error will be thrown
   - fix: const [owner,repoName] = repo.split('/')
+
+  - issue: for same deliveryId but for different deploy directories, logs will get collided
+  - fix: add a postfix 'frontend' or 'backend' accordingly after the deliveryId to differentiate between the logs 

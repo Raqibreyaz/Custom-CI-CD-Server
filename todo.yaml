@@ -1,10 +1,17 @@
-- update the deployment status(red,green,yellow) + target_url(that points to logs or a simple status page on the CI CD server) on the head_commit on github
 - add adaptability if ci/cd server is running on the same machine as the deploying server is then no SSH is required.
-- make the app to work for frontend repo also
-- handle logs of pre+post deployment for frontend
 - make it capable to work with private repos also
 
 DONE: 
   - add roll back mechanism to previous working code, when health check fails on deployment
   - add branch based deployment feature
   - add build step if build is required for backend
+  - health check is failing each time -> due to env vars not loaded
+  - environment vars are not properly loading ->
+  - redis is trying to connect to local server instead of remote -> redis fallsback to localhost when it receives undefined as url
+  - update the deployment status(red,green,yellow) + target_url(that points to logs or a simple status page on the CI CD server) on the head_commit on github
+  - make the app to work for frontend repo also
+    - what if there are only html,css,js in the repo?
+    - how to know which node's version is required?
+    - how to know which package manager is required?
+  - handle logs of pre+post deployment for frontend
+  - handle change in logs key in redis for both frontend/backend

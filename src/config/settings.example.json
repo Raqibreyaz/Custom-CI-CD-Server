@@ -1,8 +1,8 @@
 [
   {
     "trigger": {
-      "owner":"Raqibreyaz",
-      "context":"deploy/production",
+      "owner": "Raqibreyaz",
+      "context": "deploy/backend",
       "repo": "Raqibreyaz/Storra",
       "events": ["push", "pull_request"],
       "branch": "main"
@@ -10,37 +10,15 @@
     "workflow": {
       "workDir": "Backend/",
       "install": "pnpm install --frozen-lockfile",
-      "reload": "pm2 reload storraBackend",
+      "reload": "pm2 startOrReload ecosystem.config.js",
       "packageManifest": ["package.json", "pnpm-lock.yaml"]
     },
     "target": {
       "type": "ssh",
-      "host": "ssh_host",
-      "username": "username",
-      "projectPath": "project_path",
-      "auth": {
-        "sshKey": "AWS_SSH_KEY"
-      }
-    }
-  },
-  {
-    "trigger": {
-      "repo": "Raqibreyaz/Storra",
-      "events": ["push"],
-      "branch": "develop",
-      "context":"deploy/test"
-    },
-    "workflow": {
-      "workDir": "Backend/",
-      "install": "pnpm install --frozen-lockfile",
-      "start": "pm2 reload storraBackend",
-      "packageManifest": ["package.json", "pnpm-lock.yaml"]
-    },
-    "target": {
-      "type": "ssh",
-      "host": "test-storra-backend.servehttp.com",
+      "host": "storra-backend.servehttp.com",
+      "healthUrl": "127.0.0.1:8080/health",
       "username": "ubuntu",
-      "projectPath": "/home/ubuntu/Test-Storra",
+      "projectPath": "/home/ubuntu/Storra",
       "auth": {
         "sshKey": "AWS_SSH_KEY"
       }
@@ -48,22 +26,27 @@
   },
   {
     "trigger": {
+      "context": "deploy/frontend",
       "repo": "Raqibreyaz/Storra",
       "events": ["push", "pull_request"],
       "branch": "main"
     },
     "workflow": {
       "workDir": "Frontend/",
-      "envSetup": "",
       "install": "pnpm install --frozen-lockfile",
-      "build": "pnpm build"
+      "build": "pnpm build",
+      "mode": "build"
     },
     "target": {
       "type": "s3",
-      "bucket": "",
-      "cloudfrontId": "",
-      "region": "",
-      "buildDir": ""
+      "publishDir": "dist/",
+      "auth": {
+        "accessKeyId": "AWS_ACCESS_KEY_ID",
+        "secretAccessKey": "AWS_SECRET_ACCESS_KEY",
+        "region": "AWS_REGION",
+        "s3BucketName": "AWS_S3_BUCKET",
+        "cloudfrontId": "CLOUDFRONT_DISTRIBUTION_ID"
+      }
     }
   }
 ]

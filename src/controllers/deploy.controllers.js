@@ -1,8 +1,8 @@
 import redisClient from "../config/redis.config.js";
 import { notifyDeveloper } from "../service/notifyDeveloper.service.js";
 import { persistDeploymentLogs } from "../service/persistDeploymentLogs.service.js";
-import { runDeployment as runBackendDeployment } from "../service/backendDeploy.service.js";
-import { runFrontendDeployment } from "../service/frontendDeploy.service.js";
+import runBackendDeployment from "../service/backendDeploy.service.js";
+import runFrontendDeployment from "../service/frontendDeploy.service.js";
 import verifyGithubWebhookSignature from "../helpers/verifyGithubWebhookSignature.helpers.js";
 import checkChangesAndInstallationRequirement from "../helpers/checkChangesAndInstallationRequirement.helpers.js";
 import settings from "../config/settings.json" with { type: "json" };
@@ -91,40 +91,49 @@ export const githubWebhook = async (req, res) => {
 
   // 9. Run deployments sequentially.
   for (const deployConfig of deployableConfigs) {
+    let deployResult = null;
+    let isFrontend = false;
+
+    // Step 1 - execute deployment steps and take the result
     if (deployConfig.target.type === "ssh") {
-      // Step 1 — execute deployment steps and collect result.
-      const deployResult = await runBackendDeployment(
+      deployResult = await runBackendDeployment(
         deployConfig,
         deliveryId,
         commitSha,
       );
-
-      // Step 2 — persist full logs durably (fire-and-forget style; errors are
-      //           swallowed inside persistDeploymentLogs so they never block notify).
-      await persistDeploymentLogs(deliveryId, deployResult.fullLog);
-
-      // Step 3 — send a compact summary to the developer.
-      await notifyDeveloper({
-        status: deployResult.status,
-        repo: deployConfig.trigger.repo,
-        branch: deployConfig.trigger.branch,
-        commitMessage,
-        pusher,
-        runId: deliveryId,
-        shouldInstall: deployConfig.shouldInstall,
-        startedAt: deployResult.startedAt,
-        finishedAt: deployResult.finishedAt,
-        durationMs: deployResult.durationMs,
-        exitCode: deployResult.exitCode,
-        signal: deployResult.signal,
-        logExcerpt: deployResult.fullLog,
-        summary:
-          deployResult.status === "success"
-            ? "Deployment succeeded"
-            : "Deployment failed",
-      });
     } else {
-      await runFrontendDeployment(deployConfig);
+      isFrontend = true;
+      deployResult = await runFrontendDeployment(
+        deployConfig,
+        deliveryId,
+        commitSha,
+      );
     }
+
+    const runId = `${deliveryId}:${isFrontend ? "frontend" : "backend"}`;
+
+    // Step 2 — persist full logs durably (fire-and-forget style; errors are swallowed inside persistDeploymentLogs so they never block notify).
+    await persistDeploymentLogs(runId, deployResult.fullLog);
+
+    // Step 3 — send a compact summary to the developer.
+    await notifyDeveloper({
+      status: deployResult.status,
+      repo: deployConfig.trigger.repo,
+      branch: deployConfig.trigger.branch,
+      commitMessage,
+      pusher,
+      runId,
+      shouldInstall: deployConfig.shouldInstall,
+      startedAt: deployResult.startedAt,
+      finishedAt: deployResult.finishedAt,
+      durationMs: deployResult.durationMs,
+      exitCode: deployResult.exitCode,
+      signal: deployResult.signal,
+      logExcerpt: deployResult.fullLog,
+      summary:
+        deployResult.status === "success"
+          ? "Deployment succeeded"
+          : "Deployment failed",
+    });
   }
 };

@@ -20,45 +20,54 @@ import setDeployStatus from "./deployStatus.service.js";
 //     fullLog:    string,   // combined stdout+stderr (up to collector limit)
 //   }
 // ---------------------------------------------------------------------------
-export async function runDeployment(deployConfig, deliveryId, commitSha) {
+export default async function runBackendDeployment(deployConfig, deliveryId, commitSha) {
   const sshClient = new NodeSSH();
   const logCollector = createLogCollector();
   const startedAt = new Date();
 
   const deployContext = deployConfig.trigger.context;
-  const repoFullName = deployConfig.trigger.repo
+  const repoFullName = deployConfig.trigger.repo;
   const [repoOwner, repoName] = deployConfig.trigger.repo.split("/");
   const branch = deployConfig.trigger?.branch ?? "main";
   const projectRoot = deployConfig.target.projectPath;
   const workingDirName = deployConfig.workflow.workDir ?? "";
 
-  const releaseDirName = new Date().toISOString().replace(/[:.]/g, "-");
-  const releaseRoot = `${projectRoot}/releases/${releaseDirName}`;
-  const workingDirFullPath = path.posix.join(releaseRoot, workingDirName);
+  let logsTargetUrl;
 
-  const sshPrivateKey = process.env[deployConfig.target.auth.sshKey];
-  if (!sshPrivateKey) {
-    throw new Error(
-      "SSH private key env var is missing — cannot connect to remote host.",
-    );
-  }
-
-  const logServerUrl = process.env.LOG_SERVER_URL;
-  if (!logServerUrl) {
-    throw new Error("Log server URL env var is missing.");
-  }
-  const logsTargetUrl = `${logServerUrl}/logs/${deliveryId}`;
+  const updateStatus = async (state, description) => {
+    try {
+      await setDeployStatus({
+        owner: repoOwner,
+        context: deployContext,
+        description,
+        repo: repoName,
+        sha: commitSha,
+        state,
+        targetUrl: logsTargetUrl,
+      });
+    } catch (err) {
+      console.error(`[deployStatus] Failed to update status to ${state}:`, err);
+    }
+  };
 
   try {
-    await setDeployStatus({
-      owner: repoOwner,
-      context: deployContext,
-      description: "Deployment in Progress...",
-      repo: repoName,
-      sha: commitSha,
-      state: "pending",
-      targetUrl: logsTargetUrl,
-    });
+    const releaseDirName = new Date().toISOString().replace(/[:.]/g, "-");
+    const releaseRoot = `${projectRoot}/releases/${releaseDirName}`;
+    const workingDirFullPath = path.posix.join(releaseRoot, workingDirName);
+
+    const sshPrivateKey = process.env[deployConfig.target.auth.sshKey];
+    if (!sshPrivateKey) {
+      throw new Error("SSH private key env var is missing — cannot connect to remote host.");
+    }
+
+    const logServerUrl = process.env.LOG_SERVER_URL;
+    if (!logServerUrl) {
+      throw new Error("Log server URL env var is missing.");
+    }
+    const runId = `${deliveryId}:backend`;
+    logsTargetUrl = `${logServerUrl}/logs/${runId}`;
+
+    await updateStatus("pending", "Backend Deployment in Progress...");
 
     await sshClient.connect({
       host: deployConfig.target.host,
@@ -179,15 +188,7 @@ export async function runDeployment(deployConfig, deliveryId, commitSha) {
 
     logCollector.onStdout("Server Health Check Passed Successfully.");
 
-    await setDeployStatus({
-      owner: repoOwner,
-      context: deployContext,
-      description: "Deployment successfully Completed.",
-      repo: repoName,
-      sha: commitSha,
-      state: "success",
-      targetUrl: logsTargetUrl,
-    });
+    await updateStatus("success", "Backend Deployment successfully Completed.");
 
     return {
       status: "success",
@@ -199,25 +200,17 @@ export async function runDeployment(deployConfig, deliveryId, commitSha) {
       fullLog: logCollector.getCombined(),
     };
   } catch (error) {
-    await setDeployStatus({
-      owner: repoOwner,
-      context: deployContext,
-      description: "Deployment failed.",
-      repo: repoName,
-      sha: commitSha,
-      state: "failure",
-      targetUrl: logsTargetUrl,
-    });
+    logCollector.onStderr(`Deployment execution error: ${error.message}`);
+    await updateStatus("failure", "Backend Deployment failed.");
 
     return {
       status: "failed",
       startedAt,
       finishedAt: new Date(),
       durationMs: Date.now() - startedAt.getTime(),
-      exitCode: error?.exitCode ?? 1,
+      exitCode: 1,
       signal: null,
-      fullLog:
-        logCollector.getCombined() || error?.stderr || error?.message || "",
+      fullLog: logCollector.getCombined(),
     };
   } finally {
     sshClient.dispose();
