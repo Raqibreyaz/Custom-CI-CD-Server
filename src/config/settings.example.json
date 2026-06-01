@@ -35,7 +35,7 @@
       "workDir": "Frontend/",
       "install": "pnpm install --frozen-lockfile",
       "build": "pnpm build",
-      "mode": "build"
+      "mode": "build" //'build' or 'static'
     },
     "target": {
       "type": "s3",
