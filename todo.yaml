@@ -1,3 +1,5 @@
+- deploy the server on the AWS
+- add better logs management using a dedicate DB(non in-memory)
 - add adaptability if ci/cd server is running on the same machine as the deploying server is then no SSH is required.
 - make it capable to work with private repos also
 
