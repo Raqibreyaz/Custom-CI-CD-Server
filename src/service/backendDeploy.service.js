@@ -35,25 +35,34 @@ export default async function runBackendDeployment(
   const projectRoot = deployConfig.target.projectPath;
   const workingDirName = deployConfig.workflow.workDir ?? "";
 
-  try {
-    const releaseDirName = new Date().toISOString().replace(/[:.]/g, "-");
-    const releaseRoot = `${projectRoot}/releases/${releaseDirName}`;
-    const workingDirFullPath = path.posix.join(releaseRoot, workingDirName);
-    const runId = `${deliveryId}:backend`;
+  const releaseDirName = new Date().toISOString().replace(/[:.]/g, "-");
+  const releaseRoot = `${projectRoot}/releases/${releaseDirName}`;
+  const workingDirFullPath = path.posix.join(releaseRoot, workingDirName);
+  const logServerUrl = process.env.LOG_SERVER_URL;
+  const runId = `${deliveryId}:backend`;
 
-    const logServerUrl = process.env.LOG_SERVER_URL;
+  let updateStatus = null;
+  let logsTargetUrl = null;
+  try {
     if (!logServerUrl) {
       throw new Error("Log server URL env var is missing.");
     }
+
     logsTargetUrl = `${logServerUrl}/logs/${runId}`;
-    const updateStatus = deployStatusUpdater();
+    updateStatus = deployStatusUpdater(
+      repoOwner,
+      deployContext,
+      repoName,
+      commitSha,
+      logsTargetUrl,
+    );
 
     await updateStatus("pending", "Backend Deployment in Progress...");
 
     // get command runner on basis of ssh/local
     const runCommand =
       deployConfig.target.type === "ssh"
-        ? sshAndGetCommandRunner(
+        ? await sshAndGetCommandRunner(
             deployConfig.target.auth.sshKey,
             deployConfig.target.host,
             deployConfig.target.username,
@@ -149,7 +158,7 @@ export default async function runBackendDeployment(
     };
   } catch (error) {
     logCollector.onStderr(`Deployment execution error: ${error.message}`);
-    await updateStatus("failure", "Backend Deployment failed.");
+    await updateStatus?.("failure", "Backend Deployment failed.");
 
     return {
       status: "failed",
@@ -160,7 +169,5 @@ export default async function runBackendDeployment(
       signal: null,
       fullLog: logCollector.getCombined(),
     };
-  } finally {
-    sshClient.dispose();
   }
 }
