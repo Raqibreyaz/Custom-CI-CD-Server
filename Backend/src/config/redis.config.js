@@ -2,26 +2,29 @@ import { createClient } from "redis";
 
 const redisUrl = process.env.REDIS_URI;
 
-const redisClient = createClient({ url: redisUrl });
+export const publisher = createClient({ url: redisUrl });
+export const subscriber = publisher.duplicate();
 
-redisClient.on("error", (error) => {
+publisher.on("error", (error) => {
   console.error("Redis client error:", error.message);
 });
 
-redisClient.on("reconnecting", () => {
+publisher.on("reconnecting", () => {
   console.warn("Redis: attempting to reconnect...");
 });
 
-redisClient.on("ready", () => {
+publisher.on("ready", () => {
   console.log("Redis: connection ready.");
 });
 
-await redisClient.connect();
+await publisher.connect();
+await subscriber.connect();
 console.log("Memory Store Connected!");
 
 process.on("SIGINT", async () => {
-  await redisClient.quit();
+  await publisher.quit();
+  await subscriber.quit();
   process.exit(0);
 });
 
-export default redisClient;
+export default publisher;

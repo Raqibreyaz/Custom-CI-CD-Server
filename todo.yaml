@@ -30,6 +30,8 @@ Features(to work on):
 
 
 Issues(to work on):
+  - skip saving the log to DB if stdout/stderr has no data
+
   1. Orphaned Processes on CI Server Restart
     Spawned child processes (frontend build, local deploy) have no parent after restart
     Fix: track PIDs, kill orphans on startup, or use a process registry

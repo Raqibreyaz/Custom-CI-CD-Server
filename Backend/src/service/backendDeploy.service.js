@@ -25,7 +25,8 @@ export default async function runBackendDeployment(
   deliveryId,
   commitSha,
 ) {
-  const logCollector = createLogCollector();
+  const runId = `${deliveryId}:backend`;
+  const logCollector = createLogCollector(runId);
   const startedAt = new Date();
 
   const deployContext = deployConfig.trigger.context;
@@ -39,7 +40,6 @@ export default async function runBackendDeployment(
   const releaseRoot = `${projectRoot}/releases/${releaseDirName}`;
   const workingDirFullPath = path.posix.join(releaseRoot, workingDirName);
   const logServerUrl = process.env.LOG_SERVER_URL;
-  const runId = `${deliveryId}:backend`;
 
   let updateStatus = null;
   let logsTargetUrl = null;
@@ -98,13 +98,13 @@ export default async function runBackendDeployment(
     );
 
     // store the previous release dir for rollback case
-    const previousReleaseResult = await runCommand(
+    let result = await runCommand(
       `readlink ./current`,
       { cwd: projectRoot },
 
       true,
     );
-    const previousReleaseDir = previousReleaseResult.stdout?.trim() || null;
+    const previousReleaseDir = result.stdout?.trim() || null;
 
     // update the 'current' symlink to point on the new working dir release
     await runCommand(`ln -sfn "${releaseRoot}" ./current`, {
@@ -112,19 +112,20 @@ export default async function runBackendDeployment(
     });
 
     // reload the server
-    await runCommand(deployConfig.workflow.reload, { cwd: projectRoot });
+    await runCommand(deployConfig.workflow.reload, {
+      cwd: projectRoot,
+    });
 
     // do a health-check to confirm it is up and running
     const healthUrl =
       deployConfig.target.healthUrl || "http://127.0.0.1:3000/health";
-    const healthResult = await runCommand(
+    result = await runCommand(
       `curl -fsS -o /dev/null "${healthUrl}"`,
       {},
-
       true, //ignore error
     );
 
-    if (healthResult.code !== 0) {
+    if (result.code !== 0) {
       logCollector.onStdout("Health check failed. Starting rollback...");
 
       /* roll back to previous code */
@@ -133,8 +134,11 @@ export default async function runBackendDeployment(
         await runCommand(`ln -sfn "${previousReleaseDir}" ./current`, {
           cwd: projectRoot,
         });
+
         // reload the server
-        await runCommand(deployConfig.workflow.reload, { cwd: projectRoot });
+        await runCommand(deployConfig.workflow.reload, {
+          cwd: projectRoot,
+        });
 
         // remove the current release directory
         await runCommand(`rm -rf "${releaseRoot}"`, {});
@@ -144,7 +148,6 @@ export default async function runBackendDeployment(
     }
 
     logCollector.onStdout("Server Health Check Passed Successfully.");
-
     await updateStatus("success", "Backend Deployment successfully Completed.");
 
     return {

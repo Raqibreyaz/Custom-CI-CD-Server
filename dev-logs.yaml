@@ -1,4 +1,4 @@
-  features:
+features:
   - feature: deploying a remote server when a push event triggered
   - how: used github webhooks to get notified on push event, did 'ssh' into the remote server and pulled the latest changes and deployed the server
 
@@ -51,6 +51,15 @@
         logCollector,
       ): getLocalCommandRunner(logCollector);
       the params for both returned functions will be same, making it adaptable
+
+  - feature: Instead of storing the trailed logs in redis, store the full logs in DB
+  - how: after deployment, take the whole combined logs(stdout+stder) and create a deployment document in mongoDB for it
+
+  - feature: use redis to stream logs to frontend at time of deployment
+  - how: using redis's pub/sub model to publish the real time logs to the /logs/{runId} such that any client connecting to it gets real time logs using Server Sent Events
+
+  - feature: /deploy/ for getting all the stored deployments and /deploy/${runId} to get that particular deployment
+  - how: added routes in prefix of /deploy for both controllers
 
 issues: 
   - issue: on using 'heredoc', many variables like pnpm,pm2,node were not getting found as they are installed in the home directory, not typical /usr/bin etc.

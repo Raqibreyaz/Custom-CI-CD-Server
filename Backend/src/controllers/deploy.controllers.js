@@ -1,15 +1,11 @@
 import redisClient from "../config/redis.config.js";
 import { notifyDeveloper } from "../service/notifyDeveloper.service.js";
-import { persistDeploymentLogs } from "../service/persistDeploymentLogs.service.js";
 import runBackendDeployment from "../service/backendDeploy.service.js";
 import runFrontendDeployment from "../service/frontendDeploy.service.js";
 import verifyGithubWebhookSignature from "../helpers/verifyGithubWebhookSignature.helpers.js";
 import checkChangesAndInstallationRequirement from "../helpers/checkChangesAndInstallationRequirement.helpers.js";
 import settings from "../config/settings.json" with { type: "json" };
-
-// ---------------------------------------------------------------------------
-// githubWebhook — entry point for all GitHub webhook events.
-// ---------------------------------------------------------------------------
+import Deployment from "../models/deployment.models.js";
 
 export const githubWebhook = async (req, res) => {
   const webhookSignature = req.headers["x-hub-signature-256"];
@@ -51,24 +47,26 @@ export const githubWebhook = async (req, res) => {
     githubPayload.ref?.replace("refs/heads/", "") ??
     githubPayload.pull_request?.base?.ref;
 
-  // 5. Ensure the repo is registered in settings.json.
-  const matchingConfigs = settings.filter(
+  const repoConfigs = settings.filter(
     (cfg) => cfg.trigger.repo === repoFullName,
   );
-  if (matchingConfigs.length === 0) {
+  if (repoConfigs.length === 0) {
     console.log("[webhook] Repo not registered — ignoring.");
     return res.sendStatus(403);
   }
 
-  // 6. Ensure at least one config listens to this event type.
-  if (
-    !matchingConfigs.some((cfg) => cfg.trigger.events.includes(githubEvent))
-  ) {
+  const eventConfigs = repoConfigs.filter((cfg) =>
+    cfg.trigger.events.includes(githubEvent),
+  );
+  if (eventConfigs.length === 0) {
     console.log("[webhook] Event type not registered — ignoring.");
     return res.sendStatus(200);
   }
 
-  if (!matchingConfigs.some((cfg) => cfg.trigger.branch === branch)) {
+  const matchingConfigs = eventConfigs.filter(
+    (cfg) => cfg.trigger.branch === branch,
+  );
+  if (matchingConfigs.length === 0) {
     console.log("[webhook] Branch not registered - ignoring.");
     return res.sendStatus(403);
   }
@@ -109,11 +107,24 @@ export const githubWebhook = async (req, res) => {
         commitSha,
       );
     }
-
     const runId = `${deliveryId}:${isFrontend ? "frontend" : "backend"}`;
 
-    // Step 2 — persist full logs durably (fire-and-forget style; errors are swallowed inside persistDeploymentLogs so they never block notify).
-    await persistDeploymentLogs(runId, deployResult.fullLog);
+    // Step 2 - store the logs at a persistance storage
+    await Deployment.create({
+      runId: runId,
+      repoFullName: repoFullName,
+      branch: branch,
+      commitSha: commitSha,
+      commitMessage: commitMessage,
+      targetType: deployConfig.target.type,
+      targetDir: deployConfig.workflow.workDir,
+      status: deployResult.status,
+      logs: deployResult.fullLog,
+      exitCode: deployResult.exitCode,
+      trigger: "webhook",
+      startedAt: deployResult.startedAt,
+      finishedAt: deployResult.finishedAt,
+    });
 
     // Step 3 — send a compact summary to the developer.
     await notifyDeveloper({
@@ -136,4 +147,16 @@ export const githubWebhook = async (req, res) => {
           : "Deployment failed",
     });
   }
+};
+
+export const getDeployments = async (req, res) => {
+  const deployments = await Deployment.find().sort({ startedAt: -1 }).lean();
+
+  res.json({ message: "deployments fetched successfully!", deployments });
+};
+
+export const getDeployment = async (req, res) => {
+  const runId = req.params.runId;
+  const deployment = await Deployment.findOne({ runId }).lean();
+  res.json({ message: "deployment fetched successfully!", deployment });
 };

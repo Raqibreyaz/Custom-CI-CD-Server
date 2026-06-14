@@ -8,7 +8,8 @@ export default async function runFrontendDeployment(
   deliveryId,
   commitSha,
 ) {
-  const logCollector = createLogCollector();
+  const runId = `${deliveryId}:frontend`;
+  const logCollector = createLogCollector(runId);
   const startedAt = new Date();
 
   const siteMode = deployConfig.workflow.mode;
@@ -16,14 +17,15 @@ export default async function runFrontendDeployment(
   const repoFullName = deployConfig.trigger.repo;
   const [repoOwner, repoName] = repoFullName.split("/");
 
+  let updateStatus = null;
   try {
     const runId = `${deliveryId}:frontend`;
     const logServerUrl = process.env.LOG_SERVER_URL;
     if (!logServerUrl) {
       throw new Error("Log server URL env var is missing.");
     }
-    logsTargetUrl = `${logServerUrl}/logs/${runId}`;
-    const updateStatus = deployStatusUpdater(
+    const logsTargetUrl = `${logServerUrl}/logs/${runId}`;
+    updateStatus = deployStatusUpdater(
       repoOwner,
       deployContext,
       repoName,
@@ -181,7 +183,7 @@ export default async function runFrontendDeployment(
     });
   } catch (error) {
     logCollector.onStderr(`Deployment execution error: ${error.message}`);
-    await updateStatus("failure", "Frontend Deployment failed.");
+    await updateStatus?.("failure", "Frontend Deployment failed.");
     return {
       status: "failed",
       startedAt,
